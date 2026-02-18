@@ -119,10 +119,12 @@ def _filter_by_date(df: pd.DataFrame, ts_col: str, start_date, end_date) -> pd.D
 
 
 # ---------- Metric compute fns ----------
+# ---------- Metric compute fns ----------
 def metric_gross_sales(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    # ✅ net_sales_amount 대신 gross_amount를 사용하도록 수정
     items = _filter_by_date(ctx.tables["order_items"], "order_ts", ctx.start_date, ctx.end_date)
-    daily = items.groupby("date", as_index=False)["net_sales_amount"].sum()
-    return daily.rename(columns={"net_sales_amount": "value"})
+    daily = items.groupby("date", as_index=False)["gross_amount"].sum() 
+    return daily.rename(columns={"gross_amount": "value"})
 
 def metric_refund_amount(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     adj = _filter_by_date(ctx.tables["adjustments"], "event_ts", ctx.start_date, ctx.end_date)
