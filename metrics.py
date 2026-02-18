@@ -155,6 +155,12 @@ def metric_profit_proxy(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataF
     df["value"] = df["net"] - df["coupon"]
     return df[["date","value"]].sort_values("date")
 
+def metric_payment_fee(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    gross = deps["gross_sales"]
+    # 평균 수수료율 3.3% 가정
+    df = gross.copy()
+    df["value"] = df["value"] * 0.033 
+    return df
 
 def build_default_registry() -> MetricRegistry:
     r = MetricRegistry(name="default_ecommerce")
