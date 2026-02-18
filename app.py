@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
@@ -13,55 +14,49 @@ from report_tables import (
 )
 
 st.set_page_config(layout="wide")
-# 창 최대화 시 가로 스크롤 방지: 메인 영역 최대 너비 제한
+# 웹 크기에 맞게 표가 줄어들고 가로 스크롤 없이 보이도록
 st.markdown(
-    """<style> .main .block-container { max-width: 1100px; margin-left: auto; margin-right: auto; } </style>""",
+    """
+    <style>
+    .main .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
+    [data-testid="stDataFrame"] { max-width: 100% !important; overflow-x: auto !important; }
+    [data-testid="stDataFrame"] table { table-layout: fixed; width: 100% !important; font-size: clamp(0.75rem, 1.8vw, 0.95rem); word-break: break-word; }
+    [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td { word-break: break-word; }
+    </style>
+    """,
     unsafe_allow_html=True,
 )
-st.title("Causely — Upload data")
+st.title("Causely — 데이터 분석")
 
-REQUIRED = {
-    "orders.csv": "orders",
-    "order_items.csv": "order_items",
-    "adjustments.csv": "adjustments",
-    "products.csv": "products",
-}
-# 선택 업로드: 있으면 비용 상세에 반영
-OPTIONAL_CSV = ["users.csv", "coupons.csv", "ad_costs.csv", "influencer_costs.csv"]
+# 기본 DB: files/ 폴더의 CSV 사용
+FILES_DIR = os.path.join(os.path.dirname(__file__), "files")
+REQUIRED = ["orders.csv", "order_items.csv", "adjustments.csv", "products.csv"]
+OPTIONAL = ["users.csv", "coupons.csv", "ad_costs.csv", "influencer_costs.csv"]
 
-def read_csv(uploaded_file):
-    # 인코딩 문제 있으면 encoding="utf-8-sig" 또는 "cp949"로 바꿔
-    return pd.read_csv(uploaded_file)
 
-st.subheader("1) CSV 업로드 (여러 개 파일을 한 번에 드래그앤드롭)")
-uploaded_files = st.file_uploader(
-    "orders.csv, order_items.csv, adjustments.csv, products.csv 등을 한 번에 올리세요",
-    type=["csv"],
-    accept_multiple_files=True
-)
+def load_csv(name: str):
+    path = os.path.join(FILES_DIR, name)
+    if not os.path.isfile(path):
+        return None
+    try:
+        return pd.read_csv(path, encoding="utf-8-sig")
+    except Exception:
+        return pd.read_csv(path, encoding="cp949")
 
-if not uploaded_files:
-    st.stop()
 
-# 업로드 파일을 파일명으로 매칭
-file_map = {f.name: f for f in uploaded_files}
-
-missing = [fn for fn in REQUIRED.keys() if fn not in file_map]
+missing = [fn for fn in REQUIRED if not os.path.isfile(os.path.join(FILES_DIR, fn))]
 if missing:
-    st.error("필수 파일이 부족합니다: " + ", ".join(missing))
+    st.error(f"필수 파일이 없습니다. `files/` 폴더에 다음을 넣어 주세요: {', '.join(missing)}")
     st.stop()
 
-# 로드
-orders = read_csv(file_map["orders.csv"])
-items = read_csv(file_map["order_items.csv"])
-adj = read_csv(file_map["adjustments.csv"])
-products = read_csv(file_map["products.csv"])
+orders = load_csv("orders.csv")
+items = load_csv("order_items.csv")
+adj = load_csv("adjustments.csv")
+products = load_csv("products.csv")
+ad_costs = load_csv("ad_costs.csv")
+influencer_costs = load_csv("influencer_costs.csv")
 
-st.success("CSV loaded ✅")
-
-# 옵션: ad_costs, influencer_costs (있으면 사용)
-ad_costs = read_csv(file_map["ad_costs.csv"]) if "ad_costs.csv" in file_map else None
-influencer_costs = read_csv(file_map["influencer_costs.csv"]) if "influencer_costs.csv" in file_map else None
+st.caption(f"기본 DB: `{FILES_DIR}`")
 
 # 기준일 커스터마이징 (프리셋 + 날짜 선택)
 if "benchmark_date_input" not in st.session_state:
@@ -141,17 +136,69 @@ try:
             components = build_components_for_llm(key_metric_df, iv_result, high_iv_tables, threshold=iv_threshold)
             try:
                 report = core.generate_iv_report(components)
-                st.markdown("---")
-                st.subheader("IV 기반 리포트")
-                st.write(report.get("headline", ""))
-                for sec in report.get("sections", []):
-                    st.markdown(f"**{sec.get('title', '')}**")
-                    st.write(sec.get("body", ""))
+                context = core.build_llm_context(components)
+                st.session_state["iv_report"] = report
+                st.session_state["iv_report_context"] = context
+                if "iv_chat_messages" not in st.session_state:
+                    st.session_state["iv_chat_messages"] = []
             except RuntimeError as e:
                 if "OPENAI_API_KEY" in str(e):
                     st.error("OPENAI_API_KEY를 설정한 뒤 다시 시도해 주세요.")
                 else:
                     raise
+
+    # 이미 생성된 리포트가 있으면 표시 (버튼 없이 재진입 시에도)
+    if st.session_state.get("iv_report"):
+        report = st.session_state["iv_report"]
+        st.markdown("---")
+        st.subheader("IV 기반 리포트")
+        st.write(report.get("headline", ""))
+        for sec in report.get("sections", []):
+            st.markdown(f"**{sec.get('title', '')}**")
+            st.write(sec.get("body", ""))
+
+    # 분석 결과 질의응답 — 항상 표시 (리포트 없으면 안내만)
+    st.markdown("---")
+    st.subheader("💬 분석 결과 질의응답")
+    if not st.session_state.get("iv_report"):
+        st.info("👆 위에서 **IV 기반 LLM 리포트 생성** 버튼을 누르면, 여기서 분석 결과에 대해 질문할 수 있습니다.")
+    else:
+        st.caption("리포트뿐 아니라 orders, order_items, adjustments, products 등 전체 DB를 참고해 답변합니다. 예: 상품 P010의 셀러는 products의 seller_id에서 확인.")
+        if "iv_chat_messages" not in st.session_state:
+            st.session_state["iv_chat_messages"] = []
+
+        # 환영 메시지: 대화가 비어 있을 때 한 줄 안내
+        if not st.session_state["iv_chat_messages"]:
+            with st.chat_message("assistant"):
+                st.write("리포트와 전체 DB를 바탕으로 질문해 주세요. 예: \"환불액이 높은 이유가 뭐야?\", \"상품 P010 파는 셀러가 누구야?\", \"채널별로 어떤 액션을 취해야 해?\"")
+
+        for msg in st.session_state["iv_chat_messages"]:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        if prompt := st.chat_input("분석 결과에 대해 질문하세요..."):
+            st.session_state["iv_chat_messages"].append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("답변 생성 중…"):
+                    try:
+                        db_context = core.build_db_context_for_qa(orders, items, adj, products)
+                        reply = core.answer_report_question(
+                            st.session_state["iv_report"],
+                            st.session_state["iv_report_context"],
+                            st.session_state["iv_chat_messages"],
+                            db_context=db_context,
+                        )
+                        st.write(reply)
+                        st.session_state["iv_chat_messages"].append({"role": "assistant", "content": reply})
+                    except RuntimeError as e:
+                        if "OPENAI_API_KEY" in str(e):
+                            st.error("OPENAI_API_KEY를 설정한 뒤 다시 시도해 주세요.")
+                        else:
+                            st.error(str(e))
+                        st.session_state["iv_chat_messages"].pop()  # user 메시지만 남기고 재시도 가능하게
 except Exception as e:
     st.warning(f"테이블/IV 계산 중 오류: {e}")
 

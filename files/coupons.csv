@@ -1,0 +1,4 @@
+coupon_id,coupon_type,coupon_name,discount_value
+C001,SHIPPING,무료배송 쿠폰,3000.0
+C002,AMOUNT,3천원 할인 쿠폰,3000.0
+C003,PERCENT,10% 할인 쿠폰,0.1

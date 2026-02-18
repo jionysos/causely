@@ -2,11 +2,140 @@
 import os
 import json
 from datetime import date, timedelta
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from openai import OpenAI
 
+
+def _context_cell(k: str, v: Any) -> str:
+    """Human-readable cell: numbers with thousands sep, rest as-is."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return f"{k}: "
+    if isinstance(v, (int, float)):
+        return f"{k}: {v:,}" if isinstance(v, int) or v == int(v) else f"{k}: {v:,.2f}"
+    try:
+        n = float(v)
+        return f"{k}: {n:,.0f}" if n == int(n) else f"{k}: {n:,.2f}"
+    except (TypeError, ValueError):
+        pass
+    return f"{k}: {v}"
+
+
+def build_llm_context(components: Dict[str, Any]) -> str:
+    lines = []
+    증감 = components.get("증감_요약", {})
+    summary_lines = []
+
+    # 0) KEY NUMBERS — 본문에 반드시 인용할 수치 (맨 앞에 배치)
+    lines.append("## [필수] KEY NUMBERS — 아래 수치를 본문에 반드시 넣어라 (없으면 리포트 실격)")
+    key_nums = []
+    for col in ["총매출", "총비용", "순이익"]:
+        v = 증감.get(col)
+        if isinstance(v, dict) and "오늘" in v and "기준일" in v:
+            pct = v.get("증감_pct", 0)
+            방향 = "증가" if pct > 0 else "감소" if pct < 0 else "동일"
+            key_nums.append(f"{col} 오늘 {v['오늘']:,}원 기준일 {v['기준일']:,}원 ({pct:+.1f}% {방향})")
+            summary_lines.append((col, 방향, pct))
+    lines.append(" | ".join(key_nums))
+    iv_top = components.get("IV_20_이상_요인_순", [])[:5]
+    if iv_top:
+        lines.append("IV 상위 요인(반드시 분석에 사용): " + ", ".join(f"{r.get('요인','')}(IV {r.get('IV',0):.1f})" for r in iv_top))
+    lines.append("")
+
+    # 1) 총매출·총비용·순이익 변화 + 맥락 해석
+    lines.append("## 총매출·총비용·순이익 변화 (오늘 vs 기준일)")
+    for col in ["총매출", "총비용", "순이익"]:
+        v = 증감.get(col)
+        if isinstance(v, dict) and "오늘" in v and "기준일" in v:
+            pct = v.get("증감_pct", 0)
+            방향 = "증가" if pct > 0 else "감소" if pct < 0 else "동일"
+            lines.append(f"- {col}: 오늘 {v['오늘']:,}원, 기준일 {v['기준일']:,}원 → {방향} ({pct:+.1f}%)")
+
+    # 주목 패턴: 매출↑ 순이익↓ / 매출↓ 순이익↑ 등 → 심도 분석 필수
+    매출방향 = next((s[1] for s in summary_lines if s[0] == "총매출"), None)
+    이익방향 = next((s[1] for s in summary_lines if s[0] == "순이익"), None)
+    if 매출방향 == "증가" and 이익방향 == "감소":
+        lines.append("⚠️ 주목 패턴: 매출은 증가했으나 순이익이 감소 → 비용·환불 요인 집중 분석 필요 (반드시 심도 분석)")
+    elif 매출방향 == "감소" and 이익방향 == "증가":
+        lines.append("⚠️ 주목 패턴: 매출은 감소했으나 순이익이 증가 → 비용 절감·효율화 효과 가능성 (반드시 심도 분석)")
+    elif 매출방향 == "동일" and 이익방향 == "감소":
+        lines.append("⚠️ 주목 패턴: 매출은 안정이나 순이익 감소 → 내부 상쇄 요인 존재 가능성 (반드시 심도 분석)")
+    lines.append("※ 위와 같이 '매출↑ 순이익↓' 또는 '매출↓ 순이익↑' 등 주목 패턴이 있으면 리포트에서 반드시 심도 있게 분석할 것.")
+    lines.append("")
+
+    # 2) IV 기여도 전체 순위
+    lines.append("## IV 기여도 (전체 순위) — IV가 높을수록 오늘 변화를 더 많이 설명하는 요인")
+    iv_순위 = components.get("IV_전체_순위", components.get("IV_20_이상_요인_순", []))
+    for r in iv_순위:
+        name = r.get("요인", r.get("name", ""))
+        iv = r.get("IV", r.get("iv", 0))
+        방향힌트 = ""
+        if "비용" in name or "환불" in name:
+            방향힌트 = "(비용/환불 계열: 높으면 지출 변화가 큰 것)"
+        elif "매출" in name or "인플루언서" in name:
+            방향힌트 = "(매출 계열: 높으면 수익 변화가 큰 것)"
+        lines.append(f"- [IV {iv:.1f}] {name} {방향힌트}")
+    lines.append("")
+
+    # 3) IV 20 초과 요인 상세 — 수치 변화의 의미를 같이 서술
+    lines.append("## IV 20 초과 요인 상세 (전부)")
+    for t in components.get("IV_20_이상_상세_테이블", []):
+        factor = t.get("factor", "")
+        iv = t.get("iv", 0)
+        lines.append(f"### 요인: {factor} (IV {iv:.1f})")
+
+        summary = t.get("summary", [])
+        detail = t.get("detail", [])
+
+        if summary:
+            lines.append("  [요약표] — 오늘 vs 기준일 수치 변화")
+            for row in summary:
+                if isinstance(row, dict):
+                    row_str = " | ".join(
+                        _context_cell(k, v) for k, v in row.items()
+                    )
+                    lines.append(f"    {row_str}")
+                else:
+                    lines.append(f"    {row}")
+
+            # 요약에서 오늘/기준일 수치 추출해서 배율 자동 계산
+            try:
+                row = summary[-1] if summary else {}
+                gen_t = (
+                    abs(float(str(v).replace(",", "")))
+                    for k, v in (row.items() if isinstance(row, dict) else {}.items())
+                    if "오늘" in str(k) and v not in [None, 0, ""]
+                )
+                gen_b = (
+                    abs(float(str(v).replace(",", "")))
+                    for k, v in (row.items() if isinstance(row, dict) else {}.items())
+                    if "기준" in str(k) and v not in [None, 0, ""]
+                )
+                오늘값 = next(gen_t, None)
+                기준값 = next(gen_b, None)
+                if 오늘값 and 기준값 and 기준값 > 0:
+                    배율 = 오늘값 / 기준값
+                    lines.append(f"  → 오늘 수치가 기준일 대비 {배율:.1f}배 수준")
+            except Exception:
+                pass
+
+        if detail:
+            lines.append("  [상세표 Top5] — 가장 큰 영향을 준 세부 항목")
+            for row in detail:
+                if isinstance(row, dict):
+                    row_str = " | ".join(
+                        _context_cell(k, v) for k, v in row.items()
+                    )
+                    lines.append(f"    {row_str}")
+                else:
+                    lines.append(f"    {row}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("위 KEY NUMBERS와 상세 표의 수치를 본문에 반드시 인용하여 리포트를 작성하라. 숫자 없이 일반론만 쓰면 실격.")
+
+    return "\n".join(lines)
 
 def _first_day(d: date) -> date:
     return d.replace(day=1)
@@ -697,34 +826,72 @@ def generate_briefing(evidence: dict, model: str = "gpt-4o-mini") -> dict:
     return json.loads(text[start:end+1])
 
 
-def generate_iv_report(components: dict, model: str = "gpt-4o-mini") -> dict:
+def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o-mini") -> dict:
     """
     IV 기반 차이 분석 구성요소를 LLM에 보내 리포트 형식으로 생성.
-    components: report_tables.build_components_for_llm() 반환값 (IV 20 초과 요인·상세 테이블 포함).
+    components: report_tables.build_components_for_llm() 반환값.
+    총매출·총비용·순이익 변화를 함께 분석하고, 매출/비용 방향에 따라 보완·강화 액션 플랜을 요청한다.
     """
+    context = build_llm_context(components)
+
+    prompt = f"""
+아래 데이터만 사용해서 CEO용 IV 기반 리포트를 작성하라. 제공된 숫자 외의 수치는 사용 금지.
+
+---
+{context}
+---
+
+### 작성 형식
+
+**핵심 원인 분석** — 각 문장에 반드시 위 KEY NUMBERS 또는 상세표의 수치가 들어가야 함.
+- 좋은 예시(이렇게 써라): "환불액이 기준일 -50만 원에서 오늘 -144만 원으로 약 2.9배 증가(IV 25.3)했다. 이로 인해 순이익이 약 94만 원 깎였고, 방치 시 월 -2,800만 원 수준 리스크가 있다."
+- 나쁜 예시(금지): "환불이 늘어나 주의가 필요합니다.", "분석이 필요합니다."
+
+**액션 플랜** — WHO가 WHAT을 WHEN까지. 예: "S003 셀러에 오늘 오후 3시까지 환불 사유 확인 요청."
+
+**리스크** — 반드시 원 단위로 끝. 예: "방치 시 월 약 -2,800만 원 추가 손실 추정."
+
+**주목 패턴**(매출↑ 순이익↓ 또는 매출↓ 순이익↑)이 있으면 "표면상 안정적으로 보이지만 실제로는…"으로 인과를 명시할 것.
+
+### 제출 전 체크
+- [ ] 모든 문장에 수치 1개 이상?
+- [ ] 모든 액션에 WHO / WHAT / WHEN?
+- [ ] 모든 리스크에 원(₩) 표기?
+- [ ] "분석이 필요합니다", "검토하세요" 같은 모호 표현 없음?
+
+아래 JSON만 출력. 마크다운·설명 없이.
+{{
+  "headline": "한줄 요약 30자 이내 (수치 포함)",
+  "sections": [
+    {{ "title": "핵심 원인 분석", "body": "위 예시처럼 수치+인과+리스크(원) 포함 본문" }},
+    {{ "title": "우선순위별 액션 플랜", "body": "즉시: WHO/WHAT/WHEN. 단기: WHO/WHAT/WHEN." }},
+    {{ "title": "지금 반드시 확인할 지표", "body": "구체 지표명+목표값(원)" }}
+  ]
+}}
+"""
+
     client = _client()
-    system = (
-        "You are an operations analyst for an ecommerce CEO. "
-        "Use ONLY the provided data. Do not invent numbers. "
-        "Respond in Korean. Return ONLY valid JSON: { \"headline\": string, \"sections\": [ {\"title\": string, \"body\": string} ] }."
-    )
-    user = {
-        "task": (
-            "아래 데이터는 오늘 vs 기준일 비교 결과입니다. 반드시 다음 구조로 서술해 주세요.\n"
-            "1) 총매출 변동 요약: 총매출이 얼마나 변했는지, 그 원인이 **매출 자체의 증가/감소**인지 **비용의 증가/감소**인지 판단해 서술.\n"
-            "2) 기여 요인 순서: 제공된 'IV_20_이상_요인_순'과 'IV_20_이상_상세_테이블'만 사용해, 총매출·순이익 차이에 **가장 크게 기여한 요소**를 IV 내림차순으로 서술.\n"
-            "3) 보완·강화 제안: 위 분석을 바탕으로, 문제 해결 또는 매출 증진을 위해 **무엇을 보완하고 무엇을 강화**해야 하는지 구체적으로 서술.\n"
-            "headline은 한 문장으로 요약. sections에는 위 1~3에 대응하는 3개 섹션(title + body)을 넣어 주세요."
-        ),
-        "data": components,
-    }
     resp = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+            {
+                "role": "system",
+                "content": """You are a senior Korean fashion e-commerce analyst writing for the CEO.
+
+MANDATORY rules - violating any = bad report:
+1. Every sentence must contain AT LEAST ONE specific number from the data
+2. Always state: what happened → why it matters → what happens if ignored
+3. Actions must name WHO does WHAT by WHEN (e.g. "S003 셀러에 오늘 오후 3시까지 연락")
+4. Never use vague words like "분석이 필요합니다", "검토하세요" - give the actual answer
+5. If two factors cancel each other out, explicitly say "표면상 안정적으로 보이지만 실제로는..."
+6. End every risk with a specific estimated impact in Korean won
+
+Respond ONLY in valid JSON. Korean language.
+""",
+            },
+            {"role": "user", "content": prompt},
         ],
-        temperature=0.2,
+        temperature=0.1,
     )
     text = resp.choices[0].message.content.strip()
     start = text.find("{")
@@ -732,3 +899,78 @@ def generate_iv_report(components: dict, model: str = "gpt-4o-mini") -> dict:
     if start == -1 or end <= start:
         return {"headline": text[:500], "sections": []}
     return json.loads(text[start : end + 1])
+
+
+def build_db_context_for_qa(
+    orders: Optional[pd.DataFrame] = None,
+    items: Optional[pd.DataFrame] = None,
+    adj: Optional[pd.DataFrame] = None,
+    products: Optional[pd.DataFrame] = None,
+    max_rows: int = 150,
+) -> str:
+    """
+    질의응답 시 전체 DB를 훑어서 답할 수 있도록 테이블별 스키마 + 샘플 문자열 생성.
+    예: 상품 P010을 파는 셀러는 products.csv의 seller_id에서 확인 가능하도록 포함.
+    """
+    lines = ["## 전체 DB 개요 (질의응답 시 이 데이터를 훑어서 답변할 것)"]
+
+    def _sample(df: pd.DataFrame, name: str, cols: Optional[List[str]] = None, n: int = max_rows) -> None:
+        if df is None or df.empty:
+            return
+        lines.append(f"### {name}")
+        lines.append("컬럼: " + ", ".join(df.columns.tolist()))
+        use = df[cols] if cols and all(c in df.columns for c in cols) else df
+        lines.append(use.head(n).to_string(index=False))
+        lines.append("")
+
+    if products is not None and not products.empty:
+        lines.append("### products (상품 정보). 예: 상품 P010을 파는 셀러 → product_id로 행을 찾고, seller_id 컬럼이 셀러 정보.")
+        lines.append("컬럼: " + ", ".join(products.columns.tolist()))
+        cols = [c for c in ["product_id", "seller_id", "product_name"] if c in products.columns]
+        sub = products[cols] if cols else products.iloc[:, :6]
+        lines.append(sub.head(max_rows).to_string(index=False))
+        lines.append("")
+
+    if orders is not None and not orders.empty:
+        _sample(orders, "orders (주문)", n=max_rows)
+
+    if items is not None and not items.empty:
+        _sample(items, "order_items (주문별 상품/매출)", n=max_rows)
+
+    if adj is not None and not adj.empty:
+        _sample(adj, "adjustments (환불 등)", n=max_rows)
+
+    return "\n".join(lines)
+
+
+def answer_report_question(
+    report: Dict[str, Any],
+    context: str,
+    messages: List[dict],
+    db_context: str = "",
+    model: str = "gpt-4o-mini",
+) -> str:
+    """
+    IV 리포트·분석 컨텍스트·전체 DB 개요를 바탕으로 사용자 질문에 답변.
+    db_context: build_db_context_for_qa() 결과. 있으면 리포트뿐 아니라 전체 DB를 참고해 답변.
+    """
+    client = _client()
+    system = (
+        "You are a senior analyst for a Korean fashion e-commerce company. "
+        "Answer questions using (1) the report below, (2) the analysis context, and (3) the full DB overview. "
+        "When asked about specific entities (e.g. which seller sells product P010), look up the DB overview: e.g. in products, product_id identifies the product and seller_id is the seller. "
+        "Respond in Korean. Be concise and actionable. Do not invent numbers."
+    )
+    report_text = "## 리포트\n" + report.get("headline", "") + "\n\n"
+    for s in report.get("sections", []):
+        report_text += f"### {s.get('title', '')}\n{s.get('body', '')}\n\n"
+    report_text += "\n## 분석에 사용된 원본 데이터/컨텍스트\n" + context
+    if db_context:
+        report_text += "\n\n" + db_context
+
+    api_messages = [{"role": "system", "content": system + "\n\n" + report_text}]
+    for m in messages[-10:]:
+        api_messages.append({"role": m["role"], "content": m["content"]})
+
+    resp = client.chat.completions.create(model=model, messages=api_messages, temperature=0.2)
+    return resp.choices[0].message.content.strip()

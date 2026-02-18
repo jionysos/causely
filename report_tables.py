@@ -546,9 +546,11 @@ def build_components_for_llm(
         if df is None or df.empty:
             return []
         return df.to_dict(orient="records")
+    full_ranking = [{"요인": name, "IV": iv} for name, iv in ranking]
     components = {
         "key_metric": key_metric_df.to_dict(orient="records"),
         "증감_요약": {},
+        "IV_전체_순위": full_ranking,
         "IV_20_이상_요인_순": high_ranking,
         "IV_20_이상_상세_테이블": [
             {
