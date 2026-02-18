@@ -119,10 +119,12 @@ def _filter_by_date(df: pd.DataFrame, ts_col: str, start_date, end_date) -> pd.D
 
 
 # ---------- Metric compute fns ----------
+# ---------- Metric compute fns ----------
 def metric_gross_sales(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    # ✅ net_sales_amount 대신 gross_amount를 사용하도록 수정
     items = _filter_by_date(ctx.tables["order_items"], "order_ts", ctx.start_date, ctx.end_date)
-    daily = items.groupby("date", as_index=False)["net_sales_amount"].sum()
-    return daily.rename(columns={"net_sales_amount": "value"})
+    daily = items.groupby("date", as_index=False)["gross_amount"].sum() 
+    return daily.rename(columns={"gross_amount": "value"})
 
 def metric_refund_amount(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     adj = _filter_by_date(ctx.tables["adjustments"], "event_ts", ctx.start_date, ctx.end_date)
@@ -153,6 +155,12 @@ def metric_profit_proxy(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataF
     df["value"] = df["net"] - df["coupon"]
     return df[["date","value"]].sort_values("date")
 
+def metric_payment_fee(ctx: Context, deps: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    gross = deps["gross_sales"]
+    # 평균 수수료율 3.3% 가정
+    df = gross.copy()
+    df["value"] = df["value"] * 0.033 
+    return df
 
 def build_default_registry() -> MetricRegistry:
     r = MetricRegistry(name="default_ecommerce")
