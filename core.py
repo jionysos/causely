@@ -695,3 +695,40 @@ def generate_briefing(evidence: dict, model: str = "gpt-4o-mini") -> dict:
         raise RuntimeError(f"Model did not return JSON. Output was:\n{text}")
 
     return json.loads(text[start:end+1])
+
+
+def generate_iv_report(components: dict, model: str = "gpt-4o-mini") -> dict:
+    """
+    IV 기반 차이 분석 구성요소를 LLM에 보내 리포트 형식으로 생성.
+    components: report_tables.build_components_for_llm() 반환값 (IV 20 초과 요인·상세 테이블 포함).
+    """
+    client = _client()
+    system = (
+        "You are an operations analyst for an ecommerce CEO. "
+        "Use ONLY the provided data. Do not invent numbers. "
+        "Respond in Korean. Return ONLY valid JSON: { \"headline\": string, \"sections\": [ {\"title\": string, \"body\": string} ] }."
+    )
+    user = {
+        "task": (
+            "아래 데이터는 오늘 vs 기준일 비교 결과입니다. 반드시 다음 구조로 서술해 주세요.\n"
+            "1) 총매출 변동 요약: 총매출이 얼마나 변했는지, 그 원인이 **매출 자체의 증가/감소**인지 **비용의 증가/감소**인지 판단해 서술.\n"
+            "2) 기여 요인 순서: 제공된 'IV_20_이상_요인_순'과 'IV_20_이상_상세_테이블'만 사용해, 총매출·순이익 차이에 **가장 크게 기여한 요소**를 IV 내림차순으로 서술.\n"
+            "3) 보완·강화 제안: 위 분석을 바탕으로, 문제 해결 또는 매출 증진을 위해 **무엇을 보완하고 무엇을 강화**해야 하는지 구체적으로 서술.\n"
+            "headline은 한 문장으로 요약. sections에는 위 1~3에 대응하는 3개 섹션(title + body)을 넣어 주세요."
+        ),
+        "data": components,
+    }
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+        ],
+        temperature=0.2,
+    )
+    text = resp.choices[0].message.content.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end <= start:
+        return {"headline": text[:500], "sections": []}
+    return json.loads(text[start : end + 1])

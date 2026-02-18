@@ -4,9 +4,20 @@ from datetime import date, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import core
-from metrics import build_default_registry, Context
+from report_tables import (
+    build_key_metric_table,
+    build_cost_detail_table,
+    get_iv_ranking,
+    get_high_iv_detail_tables,
+    build_components_for_llm,
+)
 
 st.set_page_config(layout="wide")
+# 창 최대화 시 가로 스크롤 방지: 메인 영역 최대 너비 제한
+st.markdown(
+    """<style> .main .block-container { max-width: 1100px; margin-left: auto; margin-right: auto; } </style>""",
+    unsafe_allow_html=True,
+)
 st.title("Causely — Upload data")
 
 REQUIRED = {
@@ -14,12 +25,9 @@ REQUIRED = {
     "order_items.csv": "order_items",
     "adjustments.csv": "adjustments",
     "products.csv": "products",
-    # 필요하면 추가:
-    "users.csv": "users",
-    "coupons.csv": "coupons",
-    "ad_costs.csv": "ad_costs",
-    "influencer_costs.csv": "influencer_costs"
 }
+# 선택 업로드: 있으면 비용 상세에 반영
+OPTIONAL_CSV = ["users.csv", "coupons.csv", "ad_costs.csv", "influencer_costs.csv"]
 
 def read_csv(uploaded_file):
     # 인코딩 문제 있으면 encoding="utf-8-sig" 또는 "cp949"로 바꿔
@@ -51,6 +59,10 @@ products = read_csv(file_map["products.csv"])
 
 st.success("CSV loaded ✅")
 
+# 옵션: ad_costs, influencer_costs (있으면 사용)
+ad_costs = read_csv(file_map["ad_costs.csv"]) if "ad_costs.csv" in file_map else None
+influencer_costs = read_csv(file_map["influencer_costs.csv"]) if "influencer_costs.csv" in file_map else None
+
 # 기준일 커스터마이징 (프리셋 + 날짜 선택)
 if "benchmark_date_input" not in st.session_state:
     st.session_state["benchmark_date_input"] = date(2026, 1, 31)
@@ -72,6 +84,76 @@ with date_col:
         key="benchmark_date_input",
         label_visibility="collapsed",
     )
+
+# --- 주요 테이블 + IV 분석 + 리포트 (기준일 D-n 선택) ---
+st.subheader("주요 지표·매출/비용 상세 및 IV 리포트")
+period_days = {"D-1": 1, "D-7": 7, "D-14": 14, "D-28": 28}
+period_choice = st.selectbox("비교 기준일", list(period_days.keys()), key="report_period")
+n_days = period_days[period_choice]
+compare_date = today - timedelta(days=n_days)
+
+try:
+    key_metric_df = build_key_metric_table(today, compare_date, items, adj, ad_costs=ad_costs, influencer_costs=influencer_costs)
+    if not key_metric_df.empty:
+        row_today = key_metric_df[key_metric_df["구분"] == "오늘"].iloc[0]
+        row_base = key_metric_df[key_metric_df["구분"] == "기준일"].iloc[0]
+        st.markdown("#### 1) Key metric — 오늘 vs 기준일 증감%")
+        c1, c2, c3 = st.columns(3)
+        for col, label, key in [(c1, "총매출", "총매출"), (c2, "총비용", "총비용"), (c3, "순이익", "순이익")]:
+            with col:
+                a, b = row_today[key], row_base[key]
+                pct = ((a - b) / b * 100) if b != 0 else 0
+                st.metric(label, f"{a:,.0f}", f"{pct:+.1f}%")
+        st.dataframe(key_metric_df, use_container_width=True, hide_index=True)
+
+    cost_detail_df = build_cost_detail_table(today, compare_date, items, adj, ad_costs=ad_costs, influencer_costs=influencer_costs)
+    st.markdown("#### 2) 차이 기여도 (Information Value)")
+    iv_result = get_iv_ranking(items, adj, today, compare_date)
+    rank_df = pd.DataFrame(iv_result["ranking"], columns=["요인", "IV"])
+    st.dataframe(rank_df, use_container_width=True, hide_index=True)
+    st.caption(
+        "IV가 클수록 오늘 vs 기준일 차이를 그 요인이 더 잘 설명합니다. "
+        "**(매출)** = 매출 구성(채널/광고/인플 유무), **(비용)** = 비용 금액을 기준일 10% 구간화 후 구간별 건수 구성비 차이. "
+        "**IV 20 초과**인 요인만 아래 상세 테이블에 표시됩니다."
+    )
+
+    iv_threshold = 20
+    high_iv_tables = get_high_iv_detail_tables(items, adj, today, compare_date, iv_result, cost_detail_df, threshold=iv_threshold, top_n=5)
+    if high_iv_tables:
+        st.markdown("#### 3) IV 20 초과 요인 상세 (표 2벌: 요약 + 오늘자 기준 Top 5)")
+        for block in high_iv_tables:
+            st.markdown(f"**{block['factor']}** (IV: {block['iv']:.2f})")
+            summary_df = block.get("summary_table")
+            detail_df = block.get("detail_table")
+            col1, col2 = st.columns(2)
+            with col1:
+                if summary_df is not None and not summary_df.empty:
+                    st.caption("요약 (날짜 | 지표)")
+                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+            with col2:
+                if detail_df is not None and not detail_df.empty:
+                    st.caption("상세 (ID | 오늘자 | 기준일, Top 5)")
+                    st.dataframe(detail_df, use_container_width=True, hide_index=True)
+            st.divider()
+
+    if st.button("IV 기반 LLM 리포트 생성"):
+        with st.spinner("리포트 생성 중…"):
+            components = build_components_for_llm(key_metric_df, iv_result, high_iv_tables, threshold=iv_threshold)
+            try:
+                report = core.generate_iv_report(components)
+                st.markdown("---")
+                st.subheader("IV 기반 리포트")
+                st.write(report.get("headline", ""))
+                for sec in report.get("sections", []):
+                    st.markdown(f"**{sec.get('title', '')}**")
+                    st.write(sec.get("body", ""))
+            except RuntimeError as e:
+                if "OPENAI_API_KEY" in str(e):
+                    st.error("OPENAI_API_KEY를 설정한 뒤 다시 시도해 주세요.")
+                else:
+                    raise
+except Exception as e:
+    st.warning(f"테이블/IV 계산 중 오류: {e}")
 
 # --- 일별·누적 매출 시각화 (Plotly) ---
 st.subheader("월별 매출 시각화")
@@ -152,40 +234,6 @@ if st.session_state.get("report_shown"):
     if briefing:
         st.subheader("브리핑")
         st.write(briefing["headline"])
-
-    # --- 범인 검거: 기여도 분석에서 가장 영향 큰 지표 ---
-    decomp = core.get_sales_decomposition(report_today, n_days, items, orders)
-    main_driver = decomp["main_driver"]
-    main_pct = decomp["main_driver_contrib_pct"]
-    st.markdown("### 🎯 범인 검거")
-    if main_driver == "동일":
-        st.info("매출 변동이 없어 기여도가 동일합니다.")
-    else:
-        st.success(
-            f"**전체 매출 변동에 가장 큰 영향을 준 지표는 '{main_driver}'입니다.** "
-            f"(기여도 약 {abs(main_pct):.1f}%)"
-        )
-        with st.expander("유입량×전환율×객단가 기여도 요약"):
-            r, n, a = decomp["revenue"], decomp["order_count"], decomp["aov"]
-            st.caption(f"매출: {r['current']:,.0f} (기준일 {r['compare']:,.0f}, Δ {r['delta']:+,.0f})")
-            st.caption(f"주문수: {n['current']:,.0f} (기준일 {n['compare']:,.0f}, Δ {n['delta']:+,.0f})")
-            st.caption(f"객단가: {a['current']:,.1f} (기준일 {a['compare']:,.1f}, Δ {a['delta']:+,.1f})")
-            st.caption(f"주문수 기여분: {decomp['contrib_orders']:+,.0f} / 객단가 기여분: {decomp['contrib_aov']:+,.0f}")
-
-    # --- 사장님, 여기만 보세요: 변동 큰 상위 3 상품, 상위 2 채널 ---
-    focus = core.get_focus_summary(report_today, n_days, items, adj, products, orders)
-    st.markdown("### 👀 사장님, 여기만 보세요")
-    fc1, fc2 = st.columns(2)
-    with fc1:
-        st.caption("**변동 폭 큰 상위 3개 상품**")
-        for p in focus["top_3_products"]:
-            st.write(f"- **{p['name']}**: {p['current']:,.0f} (기준일 {p['compare']:,.0f}) → **Δ {p['delta']:+,.0f} ({p['pct']:+.1f}%)**")
-    with fc2:
-        st.caption("**변동 폭 큰 상위 2개 채널**")
-        for c in focus["top_2_channels"]:
-            st.write(f"- **{c['channel']}**: {c['current']:,.0f} (기준일 {c['compare']:,.0f}) → **Δ {c['delta']:+,.0f} ({c['pct']:+.1f}%)**")
-    if not focus["top_3_products"] and not focus["top_2_channels"]:
-        st.caption("비교할 상품/채널 데이터가 없습니다.")
 
     # --- 핵심 요약: 매출·비용·손익비율 3지표 (전일 대비 %·절대값 크게) ---
     st.markdown("### 핵심 요약")
@@ -296,57 +344,3 @@ if st.session_state.get("report_shown"):
     with st.expander("Evidence (debug)"):
         st.caption(f"기준일: {evidence.get('compare_to', '')} (선택한 비교기간과 동일)")
         st.json(evidence)
-
-# --- 3) 핵심 지표 (카테고리별) - metrics.py 연동 ---
-st.subheader("3) 핵심 지표 (카테고리별)")
-start_date = today.replace(day=1)
-tables = {
-    "order_items": items,
-    "adjustments": adj,
-    "orders": orders,
-}
-ctx = Context(tables=tables, start_date=start_date, end_date=today)
-registry = build_default_registry()
-
-for category in registry.categories():
-    st.markdown(f"#### {category}")
-    metrics_in_cat = registry.list_by_category(category)
-    # 카테고리 내 지표별로 계산 후 성공한 것만 수집
-    computed = []
-    for m in metrics_in_cat:
-        try:
-            df = registry.compute_metric(m.key, ctx)
-            if df is not None and not df.empty:
-                computed.append((m, df))
-        except Exception as e:
-            st.caption(f"**{m.title}** — 계산 생략: {e}")
-    if not computed:
-        continue
-    # 카테고리별 지표들을 한 줄에 최대 4개씩 배치
-    n_per_row = 4
-    for start in range(0, len(computed), n_per_row):
-        chunk = computed[start : start + n_per_row]
-        cols = st.columns(len(chunk))
-        for i, (m, df) in enumerate(chunk):
-            with cols[i]:
-                latest = df["value"].iloc[-1] if len(df) else 0
-                st.metric(m.title, f"{latest:,.0f}", help=m.description)
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Scatter(
-                        x=df["date"].astype(str),
-                        y=df["value"],
-                        mode="lines+markers",
-                        line=dict(width=2),
-                        marker=dict(size=4),
-                    )
-                )
-                fig.update_layout(
-                    height=200,
-                    margin=dict(l=30, r=10, t=20, b=30),
-                    xaxis_title="일자",
-                    yaxis_title="값",
-                    showlegend=False,
-                )
-                st.plotly_chart(fig, use_container_width=True)
-    st.divider()
