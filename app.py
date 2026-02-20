@@ -132,7 +132,7 @@ with tab_home:
     st.markdown("""
     <div class="hero-section">
         <div class="hero-badge">✦ AI 원인 분석 플랫폼</div>
-        <div class="hero-title">"이번 주 매출,<br>왜 떨어졌지?"</div>
+        <div class="hero-title">"오늘 매출,<br>왜 떨어졌지?"</div>
         <div class="hero-subtitle">
             핵심 지표의 변화를 감지하고,<br>
             왜 변했는지 원인 힌트까지 자동으로.<br>
@@ -146,19 +146,19 @@ with tab_home:
         st.markdown("""
         <div class="stat-card">
             <div class="stat-number">즉시</div>
-            <div class="stat-label">KPI 변화 원인 파악<br><small style="color:#94a3b8">(기존 분석가 하루~이틀 소요)</small></div>
+            <div class="stat-label">KPI 변화 원인 파악<br><small style="color:#94a3b8">주니어 분석가 2시간 소요</small></div>
         </div>""", unsafe_allow_html=True)
     with c2:
         st.markdown("""
         <div class="stat-card">
             <div class="stat-number">매일</div>
-            <div class="stat-label">Slack 자동 알림<br><small style="color:#94a3b8">팀 전체가 같은 맥락 공유</small></div>
+            <div class="stat-label">Slack 데일리 알림<br><small style="color:#94a3b8">팀 전체가 같은 맥락 공유</small></div>
         </div>""", unsafe_allow_html=True)
     with c3:
         st.markdown("""
         <div class="stat-card">
             <div class="stat-number">Why</div>
-            <div class="stat-label">숫자가 아닌 원인 힌트<br><small style="color:#94a3b8">빠른 의사결정을 위한 도구</small></div>
+            <div class="stat-label">데이터 기반 주요 원인을 순서대로 파악<br><small style="color:#94a3b8">빠른 의사결정을 위한 도구</small></div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
