@@ -264,6 +264,10 @@ with tab_home:
 # ════════════════════════════════════════════════════════════════════
 with tab_analysis:
 
+    st.markdown(
+        '<p style="text-align: center; color: #dc2626; font-size: 1.1rem; font-weight: 600; margin: 0 0 1rem 0;">데모는 2달(25.12~26.1월) 데이터로 제공됩니다.</p>',
+        unsafe_allow_html=True,
+    )
     st.title("Causely — 데이터 분석")
 
     if missing:
