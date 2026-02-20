@@ -71,10 +71,57 @@ def _context_cell(k: str, v: Any) -> str:
     return f"{k}: {v}"
 
 
+from typing import Dict, Any
+import pandas as pd
+
 def build_llm_context(components: Dict[str, Any]) -> str:
     lines = []
-    증감 = components.get("증감_요약", {})
+    증감 = components.get("증감_요약", {}) or {}
     summary_lines = []
+
+    # --- helpers ---
+    def _to_float_pct(v) -> float:
+        """증감_pct가 float/int 또는 '+15.9%' 같은 문자열이어도 안전하게 float로 변환"""
+        try:
+            if v is None:
+                return 0.0
+            if isinstance(v, (int, float)):
+                return float(v)
+            s = str(v).strip()
+            s = s.replace("%", "").replace("+", "").replace(" ", "")
+            s = s.replace("증가", "").replace("감소", "").replace("동일", "")
+            return float(s)
+        except Exception:
+            return 0.0
+
+    # 0) 먼저 '총매출 증감' 방향 판단용 값 확보
+    총매출_dict = 증감.get("총매출", {}) if isinstance(증감, dict) else {}
+    매출_pct = _to_float_pct(총매출_dict.get("증감_pct", 0)) if isinstance(총매출_dict, dict) else 0.0
+
+    # 0-1) 원천 데이터(드라이버 계산용) 가져오기
+    raw_items = components.get("__raw_items")
+    raw_today = components.get("__today")
+    raw_compare = components.get("__compare_date")
+    raw_products = components.get("__products")
+
+    # 0-2) (총매출 증가 시에만) 매출 상승 드라이버 먼저 계산해둠
+    drivers = None
+    if (
+        매출_pct > 0
+        and raw_items is not None
+        and raw_today is not None
+        and raw_compare is not None
+    ):
+        try:
+            drivers = compute_revenue_uplift_drivers(
+                items=raw_items,
+                today=raw_today,
+                compare_date=raw_compare,
+                products=raw_products,
+                top_n=5,
+            )
+        except Exception:
+            drivers = None
 
     # 0) KEY NUMBERS — 본문에 반드시 인용할 수치 (맨 앞에 배치)
     lines.append("## [필수] KEY NUMBERS — 아래 수치를 본문에 반드시 넣어라 (없으면 리포트 실격)")
@@ -82,14 +129,47 @@ def build_llm_context(components: Dict[str, Any]) -> str:
     for col in ["총매출", "총비용", "순이익"]:
         v = 증감.get(col)
         if isinstance(v, dict) and "오늘" in v and "기준일" in v:
-            pct = v.get("증감_pct", 0)
+            pct = _to_float_pct(v.get("증감_pct", 0))
             방향 = "증가" if pct > 0 else "감소" if pct < 0 else "동일"
             key_nums.append(f"{col} 오늘 {v['오늘']:,}원 기준일 {v['기준일']:,}원 ({pct:+.1f}% {방향})")
             summary_lines.append((col, 방향, pct))
     lines.append(" | ".join(key_nums))
+
+    # ✅ (핵심) 매출이 증가한 경우: 드라이버를 KEY NUMBERS에 '필수 인용'으로 박아버림
+    if 매출_pct > 0 and drivers:
+        must = []
+        prod_rows = (drivers.get("product") or [])[:3]
+        if prod_rows:
+            prod_txt = ", ".join(
+                f"{(r.get('name') or r.get('product_id'))} Δ{float(r.get('delta_rev', 0)):,.0f}원"
+                for r in prod_rows
+            )
+            must.append(f"상품 Top3(Δ매출): {prod_txt}")
+
+        ch_rows = (drivers.get("channel") or [])[:2]
+        if ch_rows:
+            label = "채널" if drivers.get("channel_dim") == "channel" else "인플루언서"
+            ch_txt = ", ".join(
+                f"{r.get('channel_value')} Δ{float(r.get('delta_rev', 0)):,.0f}원"
+                for r in ch_rows
+            )
+            must.append(f"{label} Top2(Δ매출): {ch_txt}")
+
+        if must:
+            lines.append("매출 견인자(필수 인용): " + " | ".join(must))
+
+    # IV Top 줄 (✅ 매출 증가 시엔 '보조'로 강등)
     iv_top = components.get("IV_20_이상_요인_순", [])[:5]
     if iv_top:
-        lines.append("IV 상위 요인(반드시 분석에 사용): " + ", ".join(f"{r.get('요인','')}(IV {r.get('IV',0):.1f})" for r in iv_top))
+        if 매출_pct > 0:
+            lines.append("IV 상위 요인(보조 분석): " + ", ".join(
+                f"{r.get('요인','')}(IV {float(r.get('IV',0)):.1f})" for r in iv_top
+            ))
+            lines.append("※ 매출 상승 원인 '단정'은 반드시 Δ매출(견인자) 기준으로. IV는 구조 변화 설명(왜) 용도만 사용.")
+        else:
+            lines.append("IV 상위 요인(반드시 분석에 사용): " + ", ".join(
+                f"{r.get('요인','')}(IV {float(r.get('IV',0)):.1f})" for r in iv_top
+            ))
     lines.append("")
 
     # 1) 총매출·총비용·순이익 변화 + 맥락 해석
@@ -97,11 +177,10 @@ def build_llm_context(components: Dict[str, Any]) -> str:
     for col in ["총매출", "총비용", "순이익"]:
         v = 증감.get(col)
         if isinstance(v, dict) and "오늘" in v and "기준일" in v:
-            pct = v.get("증감_pct", 0)
+            pct = _to_float_pct(v.get("증감_pct", 0))
             방향 = "증가" if pct > 0 else "감소" if pct < 0 else "동일"
             lines.append(f"- {col}: 오늘 {v['오늘']:,}원, 기준일 {v['기준일']:,}원 → {방향} ({pct:+.1f}%)")
 
-    # 주목 패턴: 매출↑ 순이익↓ / 매출↓ 순이익↑ 등 → 심도 분석 필수
     매출방향 = next((s[1] for s in summary_lines if s[0] == "총매출"), None)
     이익방향 = next((s[1] for s in summary_lines if s[0] == "순이익"), None)
     if 매출방향 == "증가" and 이익방향 == "감소":
@@ -113,12 +192,48 @@ def build_llm_context(components: Dict[str, Any]) -> str:
     lines.append("※ 위와 같이 '매출↑ 순이익↓' 또는 '매출↓ 순이익↑' 등 주목 패턴이 있으면 리포트에서 반드시 심도 있게 분석할 것.")
     lines.append("")
 
+    # 1.5) (총매출 증가 시에만) 매출 상승 드라이버 — Δ매출(원) + 구성비 변화(pp)
+    if 매출_pct > 0 and drivers:
+        lines.append("## 매출 상승 드라이버 (총매출 증가 시에만 표시) — Δ매출(원) Top + 구성비 변화(pp)")
+        lines.append("※ '견인' 판단은 **Δ매출(오늘-기준일)** 기준. 구성비(pp)는 보조 신호(수요 구조 변화)로만 사용.")
+
+        # 상품
+        prod_rows = drivers.get("product") or []
+        if prod_rows:
+            lines.append("### 상품 Top5 (Δ매출 기준)")
+            for r in prod_rows:
+                name = r.get("name") or r.get("product_id")
+                lines.append(
+                    f"- {name} ({r.get('product_id')}): "
+                    f"오늘 {float(r.get('today_rev',0)):,.0f}원 vs 기준일 {float(r.get('cmp_rev',0)):,.0f}원 → "
+                    f"Δ {float(r.get('delta_rev',0)):,.0f}원 | "
+                    f"구성비 {float(r.get('share_pp',0)):+.1f}pp "
+                    f"(count {int(r.get('today_cnt',0))}→{int(r.get('cmp_cnt',0))})"
+                )
+
+        # 채널/인플루언서
+        ch_rows = drivers.get("channel") or []
+        ch_dim = drivers.get("channel_dim")
+        if ch_rows:
+            label = "채널" if ch_dim == "channel" else "인플루언서(채널)" if ch_dim == "influencer_id" else str(ch_dim)
+            lines.append(f"### {label} Top5 (Δ매출 기준)")
+            for r in ch_rows:
+                v = r.get("channel_value")
+                lines.append(
+                    f"- {v}: "
+                    f"오늘 {float(r.get('today_rev',0)):,.0f}원 vs 기준일 {float(r.get('cmp_rev',0)):,.0f}원 → "
+                    f"Δ {float(r.get('delta_rev',0)):,.0f}원 | "
+                    f"구성비 {float(r.get('share_pp',0)):+.1f}pp "
+                    f"(count {int(r.get('today_cnt',0))}→{int(r.get('cmp_cnt',0))})"
+                )
+        lines.append("")
+
     # 2) IV 기여도 전체 순위
     lines.append("## IV 기여도 (전체 순위) — IV가 높을수록 오늘 변화를 더 많이 설명하는 요인")
     iv_순위 = components.get("IV_전체_순위", components.get("IV_20_이상_요인_순", []))
     for r in iv_순위:
         name = r.get("요인", r.get("name", ""))
-        iv = r.get("IV", r.get("iv", 0))
+        iv = float(r.get("IV", r.get("iv", 0)) or 0)
         방향힌트 = ""
         if "비용" in name or "환불" in name:
             방향힌트 = "(비용/환불 계열: 높으면 지출 변화가 큰 것)"
@@ -127,11 +242,11 @@ def build_llm_context(components: Dict[str, Any]) -> str:
         lines.append(f"- [IV {iv:.1f}] {name} {방향힌트}")
     lines.append("")
 
-    # 3) IV 20 초과 요인 상세 — 수치 변화의 의미를 같이 서술
+    # 3) IV 20 초과 요인 상세 — (원래 로직 그대로 유지)
     lines.append("## IV 20 초과 요인 상세 (전부)")
     for t in components.get("IV_20_이상_상세_테이블", []):
         factor = t.get("factor", "")
-        iv = t.get("iv", 0)
+        iv = float(t.get("iv", 0) or 0)
         lines.append(f"### 요인: {factor} (IV {iv:.1f})")
 
         summary = t.get("summary", [])
@@ -141,9 +256,7 @@ def build_llm_context(components: Dict[str, Any]) -> str:
             lines.append("  [요약표] — 오늘 vs 기준일 수치 변화")
             for row in summary:
                 if isinstance(row, dict):
-                    row_str = " | ".join(
-                        _context_cell(k, v) for k, v in row.items()
-                    )
+                    row_str = " | ".join(_context_cell(k, v) for k, v in row.items())
                     lines.append(f"    {row_str}")
                 else:
                     lines.append(f"    {row}")
@@ -173,30 +286,30 @@ def build_llm_context(components: Dict[str, Any]) -> str:
             lines.append("  [상세표 Top5] — 가장 큰 영향을 준 세부 항목")
             for row in detail:
                 if isinstance(row, dict):
-                    row_str = " | ".join(
-                        _context_cell(k, v) for k, v in row.items()
-                    )
+                    row_str = " | ".join(_context_cell(k, v) for k, v in row.items())
                     lines.append(f"    {row_str}")
                 else:
                     lines.append(f"    {row}")
         lines.append("")
-    
-    # 4) 상쇄 패턴 + 인과관계 자동 감지
+
+    # 4) 상쇄 패턴 + 인과관계 자동 감지 (원래 로직 유지)
     lines.append("## 🔍 자동 감지된 인과관계 — 반드시 리포트에 포함할 것")
     try:
-        환불_block = next((t for t in components.get("IV_20_이상_상세_테이블", [])
-                           if "환불" in t.get("factor", "")), None)
-        매출_block = next((t for t in components.get("IV_20_이상_상세_테이블", [])
-                           if "인플루언서" in t.get("factor", "")), None)
+        환불_block = next(
+            (t for t in components.get("IV_20_이상_상세_테이블", []) if "환불" in t.get("factor", "")),
+            None
+        )
+        매출_block = next(
+            (t for t in components.get("IV_20_이상_상세_테이블", []) if "인플루언서" in t.get("factor", "")),
+            None
+        )
 
         if 환불_block and 매출_block:
-            # 오늘 환불 최대 상품
             top_환불 = next(
                 (r for r in 환불_block.get("detail", [])
                  if isinstance(r, dict) and abs(float(str(r.get("오늘자 환불액", 0)).replace(",", "") or 0)) > 0),
                 None
             )
-            # 오늘 인플루언서 기여 최대
             top_inf = next(
                 (r for r in 매출_block.get("detail", [])
                  if isinstance(r, dict) and str(r.get("인플루언서 id", "")).strip() not in ["", "None", "nan"]),
@@ -226,9 +339,10 @@ def build_llm_context(components: Dict[str, Any]) -> str:
     except Exception:
         pass
 
-    # 상품(상품명) IV 상세가 있으면 반드시 리포트에 포함
-    상품_block = next((t for t in components.get("IV_20_이상_상세_테이블", [])
-                       if "상품" in t.get("factor", "")), None)
+    상품_block = next(
+        (t for t in components.get("IV_20_이상_상세_테이블", []) if "상품" in t.get("factor", "")),
+        None
+    )
     if 상품_block and 상품_block.get("detail"):
         lines.append("⚠️ 상품(상품명) IV 상세가 데이터에 있음 → KPI 변화 핵심원인 분석 본문에 반드시 상품별 기여 내용(상품명, 오늘자/기준일 매출)을 수치와 함께 포함할 것.")
 
@@ -236,6 +350,7 @@ def build_llm_context(components: Dict[str, Any]) -> str:
     lines.append("위 KEY NUMBERS와 상세 표의 수치를 본문에 반드시 인용하여 리포트를 작성하라. 숫자 없이 일반론만 쓰면 실격.")
 
     return "\n".join(lines)
+
 
 def _first_day(d: date) -> date:
     return d.replace(day=1)
@@ -314,6 +429,108 @@ def _client() -> OpenAI:
 def _to_day(ts_series: pd.Series) -> pd.Series:
     return pd.to_datetime(ts_series).dt.date
 
+
+def compute_revenue_uplift_drivers(
+    items: pd.DataFrame,
+    today: date,
+    compare_date: date,
+    products: Optional[pd.DataFrame] = None,
+    top_n: int = 5,
+) -> Dict[str, Any]:
+    """
+    총매출이 '증가'한 날에만 쓰는 설명용 드라이버.
+    - 메인: Δ매출(오늘-기준일) TopN (product/channel)
+    - 보조: count(distinct order_product_id) 구성비 변화(pp)
+    """
+    if items is None or items.empty:
+        return {}
+
+    it = items.copy()
+    if "order_ts" not in it.columns:
+        return {}
+
+    it["d"] = _to_day(it["order_ts"])
+    it = it[it["d"].isin([today, compare_date])].copy()
+    if it.empty:
+        return {}
+
+    # 필수 금액 컬럼
+    if "net_sales_amount" not in it.columns:
+        return {}
+
+    # distinct 기준: order_product_id가 있으면 그걸, 없으면 row count
+    distinct_key = "order_product_id" if "order_product_id" in it.columns else None
+
+    def _pick_channel_col(df: pd.DataFrame) -> Optional[str]:
+        # "channel"이 있으면 그걸 우선, 없으면 influencer_id를 채널 대체로 사용
+        if "channel" in df.columns:
+            return "channel"
+        if "influencer_id" in df.columns:
+            return "influencer_id"
+        return None
+
+    def _agg_dim(df: pd.DataFrame, dim: str) -> pd.DataFrame:
+        sub = df[[dim, "d", "net_sales_amount"] + ([distinct_key] if distinct_key else [])].copy()
+        sub[dim] = sub[dim].astype(str).replace("nan", "NONE").replace("", "NONE")
+
+        if distinct_key:
+            c = sub.groupby(["d", dim])[distinct_key].nunique().rename("cnt").reset_index()
+        else:
+            c = sub.groupby(["d", dim]).size().rename("cnt").reset_index()
+
+        r = sub.groupby(["d", dim])["net_sales_amount"].sum().rename("rev").reset_index()
+        m = pd.merge(r, c, on=["d", dim], how="outer").fillna(0)
+
+        # pivot
+        today_m = m[m["d"] == today].set_index(dim)[["rev", "cnt"]].rename(columns={"rev": "today_rev", "cnt": "today_cnt"})
+        cmp_m = m[m["d"] == compare_date].set_index(dim)[["rev", "cnt"]].rename(columns={"rev": "cmp_rev", "cnt": "cmp_cnt"})
+        idx = sorted(set(today_m.index) | set(cmp_m.index))
+        out = pd.concat([today_m.reindex(idx, fill_value=0), cmp_m.reindex(idx, fill_value=0)], axis=1).fillna(0)
+
+        out["delta_rev"] = out["today_rev"] - out["cmp_rev"]
+        out["delta_cnt"] = out["today_cnt"] - out["cmp_cnt"]
+
+        total_today_cnt = float(out["today_cnt"].sum()) if float(out["today_cnt"].sum()) != 0 else 1.0
+        total_cmp_cnt = float(out["cmp_cnt"].sum()) if float(out["cmp_cnt"].sum()) != 0 else 1.0
+        out["share_today"] = out["today_cnt"] / total_today_cnt
+        out["share_cmp"] = out["cmp_cnt"] / total_cmp_cnt
+        out["share_pp"] = (out["share_today"] - out["share_cmp"]) * 100.0
+
+        # pct는 비교가 0일 때 예외처리
+        out["delta_pct"] = out.apply(
+            lambda r: (r["delta_rev"] / r["cmp_rev"] * 100.0) if r["cmp_rev"] != 0 else (100.0 if r["delta_rev"] > 0 else 0.0),
+            axis=1,
+        )
+
+        out = out.sort_values("delta_rev", ascending=False)
+        out = out.reset_index().rename(columns={"index": dim})
+        return out
+
+    drivers: Dict[str, Any] = {}
+
+    # product
+    if "product_id" in it.columns:
+        prod_df = _agg_dim(it, "product_id")
+        if products is not None and not products.empty and "product_id" in products.columns:
+            name_col = "product_name" if "product_name" in products.columns else None
+            if name_col:
+                name_map = dict(zip(products["product_id"].astype(str), products[name_col].astype(str)))
+                prod_df["name"] = prod_df["product_id"].astype(str).map(name_map).fillna(prod_df["product_id"].astype(str))
+        else:
+            prod_df["name"] = prod_df["product_id"].astype(str)
+
+        drivers["product"] = prod_df.head(top_n).to_dict(orient="records")
+
+    # channel (or influencer)
+    ch_col = _pick_channel_col(it)
+    if ch_col:
+        ch_df = _agg_dim(it, ch_col)
+        # unify key name to "channel_value"
+        ch_df = ch_df.rename(columns={ch_col: "channel_value"})
+        drivers["channel_dim"] = ch_col
+        drivers["channel"] = ch_df.head(top_n).to_dict(orient="records")
+
+    return drivers
 
 def compute_sales_strength_factors(
     items: pd.DataFrame,
@@ -989,9 +1206,13 @@ def generate_briefing(evidence: dict, model: str = "gpt-4o-mini") -> dict:
 
 def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o") -> dict:
     """
+    IV 리포트 생성 (CEO용)
     IV 기반 차이 분석 구성요소를 LLM에 보내 리포트 형식으로 생성.
     components: report_tables.build_components_for_llm() 반환값.
     총매출·총비용·순이익 변화를 함께 분석하고, 매출/비용 방향에 따라 보완·강화 액션 플랜을 요청한다.
+    - 핵심: '매출 견인자(필수 인용): ...' 라인을 본문 첫 문단에 그대로 포함하도록 강제
+    - 매출↑이면 Δ매출 기반 드라이버를 KPI 핵심원인 분석의 1순위로 사용
+    - IV는 '왜' 설명(구조 변화)로만 사용
     """
     context = build_llm_context(components)
 
@@ -1043,6 +1264,10 @@ def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o") -> dic
     print("=== 끝 ===")
 
     client = _client()
+    system = (
+        "You are a senior analyst for a Korean fashion e-commerce company.\n"
+        "You MUST follow the rules. If you violate them, the report is invalid.\n"
+    )
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -1059,6 +1284,7 @@ MANDATORY rules - violating any = bad report:
 6. End every risk with a specific estimated impact in Korean won
 
 Respond ONLY in valid JSON. Korean language.
+
 """,
             },
             {"role": "user", "content": prompt},

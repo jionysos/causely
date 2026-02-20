@@ -1,5 +1,4 @@
 import os
-import glob
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
@@ -29,35 +28,33 @@ st.markdown(
 )
 st.title("Causely — 데이터 분석")
 
-# 기본 DB: files/ 폴더 아래 모든 CSV 자동 로드
+# 기본 DB: files/ 폴더의 CSV 사용
 FILES_DIR = os.path.join(os.path.dirname(__file__), "files")
-REQUIRED = ["orders", "order_items", "adjustments", "products"]
+REQUIRED = ["orders.csv", "order_items.csv", "adjustments.csv", "products.csv"]
+OPTIONAL = ["users.csv", "coupons.csv", "ad_costs.csv", "influencer_costs.csv"]
 
 
-def load_csv(path: str):
+def load_csv(name: str):
+    path = os.path.join(FILES_DIR, name)
+    if not os.path.isfile(path):
+        return None
     try:
         return pd.read_csv(path, encoding="utf-8-sig")
     except Exception:
         return pd.read_csv(path, encoding="cp949")
 
 
-_csv_paths = glob.glob(os.path.join(FILES_DIR, "*.csv"))
-_loaded = {}
-for p in _csv_paths:
-    name = os.path.splitext(os.path.basename(p))[0]
-    _loaded[name] = load_csv(p)
-
-missing = [fn for fn in REQUIRED if fn not in _loaded]
+missing = [fn for fn in REQUIRED if not os.path.isfile(os.path.join(FILES_DIR, fn))]
 if missing:
-    st.error(f"필수 파일이 없습니다. `files/` 폴더에 다음을 넣어 주세요: {', '.join(f'{x}.csv' for x in missing)}")
+    st.error(f"필수 파일이 없습니다. `files/` 폴더에 다음을 넣어 주세요: {', '.join(missing)}")
     st.stop()
 
-orders = _loaded.get("orders")
-items = _loaded.get("order_items")
-adj = _loaded.get("adjustments")
-products = _loaded.get("products")
-ad_costs = _loaded.get("ad_costs")
-influencer_costs = _loaded.get("influencer_costs")
+orders = load_csv("orders.csv")
+items = load_csv("order_items.csv")
+adj = load_csv("adjustments.csv")
+products = load_csv("products.csv")
+ad_costs = load_csv("ad_costs.csv")
+influencer_costs = load_csv("influencer_costs.csv")
 
 st.caption(f"기본 DB: `{FILES_DIR}`")
 
@@ -178,6 +175,12 @@ try:
     if st.button("IV 기반 LLM 리포트 생성"):
         with st.spinner("리포트 생성 중…"):
             components = build_components_for_llm(key_metric_df, iv_result, high_iv_tables, threshold=iv_threshold)
+            # (추가) 매출 상승 드라이버 계산을 위해 원천 데이터/기준일 정보를 함께 전달
+            components["__raw_items"] = items
+            components["__today"] = today
+            components["__compare_date"] = compare_date
+            components["__products"] = products
+
             try:
                 report = core.generate_iv_report(components)
 
