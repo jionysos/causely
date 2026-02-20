@@ -371,7 +371,7 @@ with tab_analysis:
                 pie_values.append(other_sum)
             fig_pie = go.Figure(data=[go.Pie(
                 labels=pie_labels, values=pie_values, hole=0.4,
-                textinfo="percent", textposition="outside",
+                textinfo="label+percent", textposition="inside",
                 hoverinfo="label+percent",
             )])
             fig_pie.update_layout(
