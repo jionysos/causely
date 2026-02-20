@@ -265,10 +265,10 @@ with tab_home:
 # ════════════════════════════════════════════════════════════════════
 with tab_analysis:
 
-    st.title("Causely — 데이터 분석222")
+    st.title("Causely — 데이터 분석")
     _, col_demo, _ = st.columns([1, 2, 1])
     with col_demo:
-        st.markdown(":red[**데모는 2달(25.12~26.1월) 데이터로 제공됩니다.**]")
+        st.markdown('<p style="color: #b91c1c; font-size: 1.35rem; font-weight: 700; margin: 0; text-align: center;">데모는 2달(25.12~26.1월) 데이터로 제공됩니다.</p>', unsafe_allow_html=True)
 
     if missing:
         st.error(f"필수 파일이 없습니다. `files/` 폴더에 다음을 넣어 주세요: {', '.join(f'{x}.csv' for x in missing)}")
