@@ -295,7 +295,7 @@ with tab_analysis:
             st.session_state.pop(key, None)
     st.session_state["iv_report_key"] = _report_key
 
-    st.subheader("주요 지표·매출/비용 상세 및 IV 리포트")
+    st.subheader("주요 지표·매출/비용 Summary")
     items_chart = items.copy()
     if "net_sales_amount" not in items_chart.columns and "gross_amount" in items_chart.columns:
         items_chart["net_sales_amount"] = items_chart["gross_amount"]
@@ -383,7 +383,7 @@ with tab_analysis:
                         st.dataframe(detail_df, use_container_width=True, hide_index=True)
                 st.divider()
 
-        if st.button("IV 기반 LLM 리포트 생성"):
+        if st.button("Causely 리포트 생성"):
             with st.spinner("리포트 생성 중…"):
                 components = build_components_for_llm(key_metric_df, iv_result, high_iv_tables, threshold=iv_threshold)
                 try:
