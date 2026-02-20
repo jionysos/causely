@@ -403,15 +403,30 @@ with tab_analysis:
         if st.session_state.get("iv_report"):
             report = st.session_state["iv_report"]
             st.markdown("---")
-            st.subheader("IV 기반 리포트")
-            st.write(report.get("headline", ""))
+            st.subheader("KPI 변화 원인 분석 리포트")
+            if report.get("headline"):
+                st.info(report["headline"])
+
+            section_icons = {
+                "종합": "📋",
+                "비용 관점": "💸",
+                "매출 관점": "📈",
+                "우선순위별 액션 플랜": "✅",
+            }
+
             for sec in report.get("sections", []):
-                st.markdown(f"**{sec.get('title', '')}**")
+                title = sec.get("title", "")
+                icon = section_icons.get(title, "•")
+                st.markdown(f"#### {icon} {title}")
                 if sec.get("body"):
-                    st.write(sec.get("body", ""))
-                for i, action in enumerate(sec.get("actions", []), 1):
-                    label = action.get("label", f"{i}순위")
-                    st.markdown(f"**{label}** {action.get('action','')}")
+                    st.write(sec["body"])
+                actions = sec.get("actions", [])
+                if actions:
+                    for action in actions:
+                        label = action.get("label", "")
+                        act = action.get("action", "")
+                        st.markdown(f"**{label}** {act}")
+                st.markdown("")
             st.markdown("---")
             with st.container():
                 st.markdown("#### 💬 분석 결과에 대해 질문하세요")
