@@ -89,6 +89,7 @@ st.markdown(
     }
     .stat-number { font-size: 2.5rem; font-weight: 800; color: #6366f1; }
     .stat-label { font-size: 0.9rem; color: #64748b; margin-top: 6px; }
+    .demo-banner { text-align: center; color: #b91c1c !important; font-size: 1rem; font-weight: 700; margin: -0.3rem 0 1.2rem 0; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -265,10 +266,9 @@ with tab_home:
 with tab_analysis:
 
     st.title("Causely — 데이터 분석")
-    st.markdown(
-        '<p style="text-align: center; color: #b91c1c; font-size: 1rem; font-weight: 700; margin: -0.3rem 0 1.2rem 0; letter-spacing: 0.02em;">데모는 2달(25.12~26.1월) 데이터로 제공됩니다.</p>',
-        unsafe_allow_html=True,
-    )
+    _, col_demo, _ = st.columns([1, 2, 1])
+    with col_demo:
+        st.markdown(":red[**데모는 2달(25.12~26.1월) 데이터로 제공됩니다.**]")
 
     if missing:
         st.error(f"필수 파일이 없습니다. `files/` 폴더에 다음을 넣어 주세요: {', '.join(f'{x}.csv' for x in missing)}")
