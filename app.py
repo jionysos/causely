@@ -265,7 +265,7 @@ with tab_home:
 # ════════════════════════════════════════════════════════════════════
 with tab_analysis:
 
-    st.title("Causely — 데이터 분석")
+    st.title("Causely — 데이터 분석222")
     _, col_demo, _ = st.columns([1, 2, 1])
     with col_demo:
         st.markdown(":red[**데모는 2달(25.12~26.1월) 데이터로 제공됩니다.**]")
