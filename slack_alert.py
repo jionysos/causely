@@ -1,7 +1,7 @@
 import requests
 import json
 
-SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
+SLACK_WEBHOOK_URL = "url"
 
 
 def _to_manwon(val):
