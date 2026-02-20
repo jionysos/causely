@@ -369,8 +369,8 @@ with tab_analysis:
             if other_sum > 0:
                 pie_labels.append("기타 (10% 미만)")
                 pie_values.append(other_sum)
-            text_display = [f"{lb}\n{v:.1f}%" if v <= 10 else "" for lb, v in zip(pie_labels, pie_values)]
-            text_pos = ["inside" if v <= 10 else "none" for v in pie_values]
+            text_display = [f"{lb}\n{v:.1f}%" if v >= 10 else "" for lb, v in zip(pie_labels, pie_values)]
+            text_pos = ["inside" if v >= 10 else "none" for v in pie_values]
             fig_pie = go.Figure(data=[go.Pie(
                 labels=pie_labels, values=pie_values, hole=0.4,
                 text=text_display, textinfo="text", textposition=text_pos,
