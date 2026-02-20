@@ -71,10 +71,18 @@ def _context_cell(k: str, v: Any) -> str:
     return f"{k}: {v}"
 
 
-def build_llm_context(components: Dict[str, Any]) -> str:
+def build_llm_context(components: Dict[str, Any], today=None, compare_date=None) -> str:
     lines = []
     증감 = components.get("증감_요약", {})
     summary_lines = []
+
+    # 0-0) 분석 기준일 — 가장 먼저 명시
+    if today or compare_date:
+        lines.append("## [분석 기준]")
+        lines.append(f"- 기준일(오늘): {today}")
+        lines.append(f"- 비교일(기준일): {compare_date}")
+        lines.append("※ 모든 분석은 위 기준일 데이터 기준. 다른 날짜 추정 금지.")
+        lines.append("")
 
     # 0) KEY NUMBERS — 본문에 반드시 인용할 수치 (맨 앞에 배치)
     lines.append("## [필수] KEY NUMBERS — 아래 수치를 본문에 반드시 넣어라 (없으면 리포트 실격)")
@@ -987,13 +995,13 @@ def generate_briefing(evidence: dict, model: str = "gpt-4o-mini") -> dict:
     return json.loads(text[start:end+1])
 
 
-def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o") -> dict:
+def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o", today=None, compare_date=None) -> dict:
     """
     IV 기반 차이 분석 구성요소를 LLM에 보내 리포트 형식으로 생성.
     components: report_tables.build_components_for_llm() 반환값.
     총매출·총비용·순이익 변화를 함께 분석하고, 매출/비용 방향에 따라 보완·강화 액션 플랜을 요청한다.
     """
-    context = build_llm_context(components)
+    context = build_llm_context(components, today=today, compare_date=compare_date)
 
     prompt = f"""
 아래 데이터만 사용해서 CEO용 IV 기반 리포트를 작성하라. 제공된 숫자 외의 수치는 사용 금지.
@@ -1005,20 +1013,18 @@ def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o") -> dic
 ### 작성 형식
 
 **KPI 변화 핵심원인 분석** — 각 문장에 반드시 위 KEY NUMBERS 또는 상세표의 수치가 들어가야 함.
-- 좋은 예시(이렇게 써라): "환불액이 기준일 -50만 원에서 오늘 -144만 원으로 약 2.9배 증가(IV 25.3)했다. 이로 인해 순이익이 약 94만 원 깎였고, 방치 시 월 -2,800만 원 수준 리스크가 있다."
-- 나쁜 예시(금지): "환불이 늘어나 주의가 필요합니다.", "분석이 필요합니다."
+- 좋은 예시(이렇게 써라): "환불액이 기준일 405,000원에서 오늘 1,444,000원으로 약 3.6배 증가(IV 309.5)했다. 코튼 브라렛 세트 환불 -1,444,000원이 신규 발생했고, INF_A 매출 +1,449,000원이 이를 상쇄하고 있다."
+- 나쁜 예시(절대 금지): "방치 시 월 ~원 추가 손실 예상" 같은 데이터에 없는 수치 추정, "분석이 필요합니다", "검토하세요"
 
-**액션 플랜** — 구체적 행동(WHAT)만. 시간(언제까지)·누구(팀/담당자) 명시 금지. 예: "환불 사유 확인 완료"
-
-**리스크** — 반드시 원 단위로 끝. 예: "방치 시 월 약 -2,800만 원 추가 손실 추정."
+**액션 플랜** — 구체적 행동(WHAT)만. 시간(언제까지)·누구(팀/담당자) 명시 금지. 예: "코튼 브라렛 세트 환불 사유 확인"
 
 **주목 패턴**(매출↑ 순이익↓ 또는 매출↓ 순이익↑)이 있으면 "표면상 안정적으로 보이지만 실제로는…"으로 인과를 명시할 것.
 
 ### 제출 전 체크
-- [ ] 모든 문장에 수치 1개 이상?
+- [ ] 모든 문장에 데이터에 있는 수치만 사용했는가? (추정·외삽 금지)
 - [ ] 상품(상품명) IV 상세가 데이터에 있으면 KPI 변화 핵심원인 분석에 반드시 상품별 기여(상품명, 수치) 포함?
 - [ ] 모든 액션은 구체적 행동(WHAT)만. 시간·누구/팀 명시 금지
-- [ ] 모든 리스크에 원(₩) 표기?
+- [ ] "방치 시 월 ~원" 같은 데이터 외 추정 수치 없음?
 - [ ] "분석이 필요합니다", "검토하세요" 같은 모호 표현 없음?
 
 아래 JSON만 출력. 마크다운·설명 없이. sections는 2개만: KPI 변화 핵심원인 분석, 우선순위별 액션 플랜.
@@ -1051,12 +1057,12 @@ def generate_iv_report(components: Dict[str, Any], model: str = "gpt-4o") -> dic
                 "content": """You are a senior Korean fashion e-commerce analyst writing for the CEO.
 
 MANDATORY rules - violating any = bad report:
-1. Every sentence must contain AT LEAST ONE specific number from the data
-2. Always state: what happened → why it matters → what happens if ignored
+1. Every sentence must contain AT LEAST ONE specific number from the provided data only
+2. Always state: what happened → why it matters → what to do
 3. Actions must state WHAT only. Do NOT specify WHEN (time/deadline) or WHO (team/person)
 4. Never use vague words like "분석이 필요합니다", "검토하세요" - give the actual answer
 5. If two factors cancel each other out, explicitly say "표면상 안정적으로 보이지만 실제로는..."
-6. End every risk with a specific estimated impact in Korean won
+6. STRICTLY FORBIDDEN: Do NOT extrapolate or estimate monthly/annual figures. Only use numbers from the provided data. No "방치 시 월 ~원" style projections.
 
 Respond ONLY in valid JSON. Korean language.
 """,
