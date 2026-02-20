@@ -266,7 +266,7 @@ with tab_analysis:
 
     st.title("Causely — 데이터 분석")
     st.markdown(
-        '<p style="text-align: center; color: #dc2626; font-size: 1.25rem; font-weight: 600; margin: -0.5rem 0 1.5rem 0;">데모는 2달(25.12~26.1월) 데이터로 제공됩니다.</p>',
+        '<p style="text-align: center; color: #b91c1c; font-size: 1rem; font-weight: 700; margin: -0.3rem 0 1.2rem 0; letter-spacing: 0.02em;">데모는 2달(25.12~26.1월) 데이터로 제공됩니다.</p>',
         unsafe_allow_html=True,
     )
 
