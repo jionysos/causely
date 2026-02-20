@@ -134,9 +134,9 @@ with tab_home:
         <div class="hero-badge">✦ AI 원인 분석 플랫폼</div>
         <div class="hero-title">"이번 주 매출,<br>왜 떨어졌지?"</div>
         <div class="hero-subtitle">
-            자연어 한 줄이면 충분합니다.<br>
-            Causely가 GA·광고·매출 데이터를 연결해<br>
-            근본 원인까지 즉시 찾아드립니다.
+            핵심 지표의 변화를 감지하고,<br>
+            왜 변했는지 원인 힌트까지 자동으로.<br>
+            의사결정을 빠르고 효율적으로 만듭니다.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -145,20 +145,20 @@ with tab_home:
     with c1:
         st.markdown("""
         <div class="stat-card">
-            <div class="stat-number">5분</div>
-            <div class="stat-label">원인 파악에 걸리는 시간<br><small style="color:#94a3b8">(기존 평균 3~4시간)</small></div>
+            <div class="stat-number">즉시</div>
+            <div class="stat-label">KPI 변화 원인 파악<br><small style="color:#94a3b8">(기존 분석가 하루~이틀 소요)</small></div>
         </div>""", unsafe_allow_html=True)
     with c2:
         st.markdown("""
         <div class="stat-card">
-            <div class="stat-number">0명</div>
-            <div class="stat-label">필요한 데이터 분석가<br><small style="color:#94a3b8">자연어 질문만으로 충분</small></div>
+            <div class="stat-number">매일</div>
+            <div class="stat-label">Slack 자동 알림<br><small style="color:#94a3b8">팀 전체가 같은 맥락 공유</small></div>
         </div>""", unsafe_allow_html=True)
     with c3:
         st.markdown("""
         <div class="stat-card">
-            <div class="stat-number">∞</div>
-            <div class="stat-label">연결 가능한 데이터 소스<br><small style="color:#94a3b8">GA · 광고 · 매출 · ERP</small></div>
+            <div class="stat-number">Why</div>
+            <div class="stat-label">숫자가 아닌 원인 힌트<br><small style="color:#94a3b8">빠른 의사결정을 위한 도구</small></div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -169,11 +169,11 @@ with tab_home:
         st.markdown("""
         <div class="compare-card compare-bad">
             <div class="compare-title">😫 기존 방식</div>
-            <div class="compare-item">GA4 열어서 트래픽 확인</div>
-            <div class="compare-item">광고 대시보드 따로 확인</div>
-            <div class="compare-item">스프레드시트에 수동 복붙</div>
-            <div class="compare-item">분석가에게 리포트 요청</div>
-            <div class="compare-item">3~4시간 후 답변 도착</div>
+            <div class="compare-item">GA4, 광고, 매출 대시보드 따로 확인</div>
+            <div class="compare-item">분석가가 그래프 수십 개 수동 정리</div>
+            <div class="compare-item">Slack에 분석 올리는 데 하루 소요</div>
+            <div class="compare-item">원인 추정은 여전히 사람이 직접</div>
+            <div class="compare-item">의사결정까지 2~3일 소요</div>
         </div>""", unsafe_allow_html=True)
     with col_mid:
         st.markdown("<div style='text-align:center; font-size:2rem; padding-top:80px'>→</div>", unsafe_allow_html=True)
@@ -181,11 +181,11 @@ with tab_home:
         st.markdown("""
         <div class="compare-card compare-good">
             <div class="compare-title">✅ Causely</div>
-            <div class="compare-item">"이번 주 매출 왜 떨어졌어?" 입력</div>
-            <div class="compare-item">AI가 인과관계 자동 분석</div>
-            <div class="compare-item">원인 경로 자연어로 설명</div>
-            <div class="compare-item">액션 플랜까지 즉시 제공</div>
-            <div class="compare-item" style="font-weight:700; color:#16a34a">5분 안에 완료 ⚡</div>
+            <div class="compare-item">핵심 지표 변화 자동 감지</div>
+            <div class="compare-item">KPI 변화 원인 힌트 자동 제공</div>
+            <div class="compare-item">매일 아침 Slack으로 자동 전송</div>
+            <div class="compare-item">대시보드에서 즉시 원인 파악</div>
+            <div class="compare-item" style="font-weight:700; color:#16a34a">의사결정까지 당일 완료 ⚡</div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -196,33 +196,33 @@ with tab_home:
         st.markdown("""
         <div class="feature-card">
             <div class="feature-icon">🔍</div>
-            <div class="feature-title">자동 원인 탐색</div>
+            <div class="feature-title">KPI 변화 원인 파악</div>
             <div class="feature-desc">
-                매출 하락 → 채널 유입 감소 → 캠페인 종료처럼,
-                지표 간 인과관계를 AI가 자동으로 추적해
-                근본 원인까지 찾아냅니다.
+                매출·유저·전환율이 변했을 때,
+                어떤 캠페인·채널·상품이 원인인지
+                힌트를 자동으로 찾아줍니다.
             </div>
         </div>""", unsafe_allow_html=True)
     with f2:
         st.markdown("""
         <div class="feature-card">
-            <div class="feature-icon">💬</div>
-            <div class="feature-title">자연어 질의응답</div>
+            <div class="feature-icon">📊</div>
+            <div class="feature-title">핵심 지표 대시보드</div>
             <div class="feature-desc">
-                복잡한 쿼리 없이 "환불이 왜 늘었어?" 처럼
-                질문하면 DB를 직접 조회해
-                정확한 답변을 즉시 드립니다.
+                업종에 맞는 핵심 지표를 구성하고,
+                변화를 한눈에 파악할 수 있는
+                대시보드를 자동으로 만들어줍니다.
             </div>
         </div>""", unsafe_allow_html=True)
     with f3:
         st.markdown("""
         <div class="feature-card">
-            <div class="feature-icon">📈</div>
-            <div class="feature-title">자동 IV 리포트</div>
+            <div class="feature-icon">💬</div>
+            <div class="feature-title">매일 Slack 자동 알림</div>
             <div class="feature-desc">
-                순이익 변화에 가장 큰 영향을 준 요소를
-                자동으로 계산하고 우선순위별
-                액션 플랜까지 생성합니다.
+                매일 아침 핵심 지표 요약과
+                원인 힌트가 Slack으로 자동 전송.
+                팀 전체가 같은 맥락을 공유합니다.
             </div>
         </div>""", unsafe_allow_html=True)
 
@@ -232,11 +232,11 @@ with tab_home:
     t1, t2, t3 = st.columns(3)
     for col, icon, title, desc in [
         (t1, "🏃", "데이터 분석가 없는 스타트업 대표",
-         '"매출 왜 떨어졌어?" 한 줄 질문으로 즉시 원인 파악. 분석가 없어도 됩니다.'),
+         'KPI가 왜 변했는지 원인 힌트를 즉시 파악. 분석가 없어도 빠른 의사결정이 가능합니다.'),
         (t2, "📣", "마케터 · PM",
-         "숫자 요약이 아닌 데이터 간 관계(Why)를 설명해줍니다. 수동 비교는 그만."),
-        (t3, "📋", "주간 리포트가 필요한 팀",
-         "매주 반복되는 분석 리포트를 자동 생성 + 슬랙 자동 발송."),
+         "캠페인·채널·상품 중 무엇이 지표를 움직였는지 자동으로 찾아줍니다. 수동 분석은 그만."),
+        (t3, "📋", "데이터 분석가",
+         "매번 반복되는 KPI 리포트 자동화. 원인 분석에 집중할 수 있는 시간을 돌려드립니다."),
     ]:
         with col:
             st.markdown(f"""
