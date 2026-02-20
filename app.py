@@ -358,8 +358,28 @@ with tab_analysis:
         if total_iv > 0:
             labels = [name for name, _ in ranking]
             values = [iv / total_iv * 100 for _, iv in ranking]
-            fig_pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.4, textinfo="label+percent")])
-            fig_pie.update_layout(height=400, margin=dict(t=80, b=40, l=20, r=20), showlegend=True, legend=dict(orientation="h", yanchor="top", y=-0.05))
+            pie_labels, pie_values = [], []
+            other_sum = 0.0
+            for name, v in zip(labels, values):
+                if v >= 10:
+                    pie_labels.append(name)
+                    pie_values.append(v)
+                else:
+                    other_sum += v
+            if other_sum > 0:
+                pie_labels.append("기타 (10% 미만)")
+                pie_values.append(other_sum)
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=pie_labels, values=pie_values, hole=0.4,
+                textinfo="percent", textposition="outside",
+                hoverinfo="label+percent",
+            )])
+            fig_pie.update_layout(
+                height=400,
+                margin=dict(t=60, b=20, l=20, r=20),
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="center", x=0.5),
+            )
             st.plotly_chart(fig_pie, use_container_width=True)
         st.caption("순이익 변화에 영향을 가장 끼친 요소들과 그 비중을 나타냅니다.")
 
