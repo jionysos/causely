@@ -374,6 +374,7 @@ with tab_analysis:
             fig_pie = go.Figure(data=[go.Pie(
                 labels=pie_labels, values=pie_values, hole=0.4,
                 text=text_display, textinfo="text", textposition=text_pos,
+                insidetextorientation="horizontal",
                 hoverinfo="label+percent",
             )])
             fig_pie.update_layout(
