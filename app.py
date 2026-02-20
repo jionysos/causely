@@ -132,7 +132,7 @@ with tab_home:
     st.markdown("""
     <div class="hero-section">
         <div class="hero-badge">✦ AI 원인 분석 플랫폼</div>
-        <div class="hero-title">"이번 주 매출,<br>왜 떨어졌지?"</div>
+        <div class="hero-title">"오늘 매출,<br>왜 떨어졌지?"</div>
         <div class="hero-subtitle">
             핵심 지표의 변화를 감지하고,<br>
             왜 변했는지 원인 힌트까지 자동으로.<br>
@@ -146,7 +146,7 @@ with tab_home:
         st.markdown("""
         <div class="stat-card">
             <div class="stat-number">즉시</div>
-            <div class="stat-label">KPI 변화 원인 파악<br><small style="color:#94a3b8">(기존 분석가 하루~이틀 소요)</small></div>
+            <div class="stat-label">KPI 변화 원인 파악<br><small style="color:#94a3b8">(기존 주니어 분석가 3시간 소요)</small></div>
         </div>""", unsafe_allow_html=True)
     with c2:
         st.markdown("""
@@ -158,7 +158,7 @@ with tab_home:
         st.markdown("""
         <div class="stat-card">
             <div class="stat-number">Why</div>
-            <div class="stat-label">데이터 기반 원인 우선순위<br><small style="color:#94a3b8">주요 원인을 순서대로 파악</small></div>
+            <div class="stat-label">데이터 기반 핵심 원인 파악<br><small style="color:#94a3b8">빠르고 강력한 의사결정 보조</small></div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -173,7 +173,7 @@ with tab_home:
             <div class="compare-item">분석가가 그래프 수십 개 수동 정리</div>
             <div class="compare-item">Slack에 분석 올리는 데 하루 소요</div>
             <div class="compare-item">원인 추정은 여전히 사람이 직접</div>
-            <div class="compare-item">의사결정까지 2~3일 소요</div>
+            <div class="compare-item">의사결정까지 1~2일 소요</div>
         </div>""", unsafe_allow_html=True)
     with col_mid:
         st.markdown("<div style='text-align:center; font-size:2rem; padding-top:80px'>→</div>", unsafe_allow_html=True)
@@ -182,8 +182,8 @@ with tab_home:
         <div class="compare-card compare-good">
             <div class="compare-title">✅ Causely</div>
             <div class="compare-item">핵심 지표 변화 자동 감지</div>
-            <div class="compare-item">KPI 변화 원인 힌트 자동 제공</div>
-            <div class="compare-item">매일 아침 Slack으로 자동 전송</div>
+            <div class="compare-item">KPI 변화 원인 힌트 제공</div>
+            <div class="compare-item">매일 아침 Slack으로 전송</div>
             <div class="compare-item">대시보드에서 즉시 원인 파악</div>
             <div class="compare-item" style="font-weight:700; color:#16a34a">의사결정까지 당일 완료 ⚡</div>
         </div>""", unsafe_allow_html=True)
@@ -211,7 +211,7 @@ with tab_home:
             <div class="feature-desc">
                 업종에 맞는 핵심 지표를 구성하고,
                 변화를 한눈에 파악할 수 있는
-                대시보드를 자동으로 만들어줍니다.
+                대시보드를 제공합니다.
             </div>
         </div>""", unsafe_allow_html=True)
     with f3:
@@ -232,11 +232,11 @@ with tab_home:
     t1, t2, t3 = st.columns(3)
     for col, icon, title, desc in [
         (t1, "🏃", "데이터 분석가 없는 스타트업 대표",
-         'KPI가 왜 변했는지 원인 힌트를 즉시 파악. 분석가 없어도 빠른 의사결정이 가능합니다.'),
+         'KPI가 왜 변했는지 원인 힌트를 즉시 파악! 분석가 없어도 빠른 의사결정이 가능합니다.'),
         (t2, "📣", "마케터 · PM",
-         "캠페인·채널·상품 중 무엇이 지표를 움직였는지 자동으로 찾아줍니다. 수동 분석은 그만."),
+         "원인 분석을 위한 분석은 그만! 캠페인·채널·상품 중 무엇이 지표를 움직였는지 자동으로 찾아줍니다."),
         (t3, "📋", "데이터 분석가",
-         "매번 반복되는 KPI 리포트 자동화. 원인 분석에 집중할 수 있는 시간을 돌려드립니다."),
+         "매번 반복되는 KPI 리포트 자동화! 의사결정에 집중할 수 있는 시간을 돌려드립니다."),
     ]:
         with col:
             st.markdown(f"""
